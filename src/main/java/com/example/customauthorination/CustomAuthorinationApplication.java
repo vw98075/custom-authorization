@@ -7,6 +7,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpRequest;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -17,10 +19,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -38,41 +37,116 @@ class MvcConfig implements WebMvcConfigurer {
 
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
-		registry.addInterceptor(new MyInterceptor( authorinzationConfigData()));
+		registry.addInterceptor(new MyInterceptor(getAuthorizationService()));
 	}
 
 	@Bean(name="auth")
-	public Map<String, Set<String>> authorinzationConfigData() {
-		Map<String, Set<String>> map = new HashMap<>();
+	public Map<CompositeKey, Set<String>> authorinzationConfigData() {
+		Map<CompositeKey, Set<String>> map = new HashMap<>();
 		Set<String>  set = Stream.of("112288", "332299").collect(Collectors.toCollection(HashSet::new));
-		map.put("me", set);
-		set = Stream.of("442288", "552299").collect(Collectors.toCollection(HashSet::new));
-		map.put("you", set);
+		map.put(new CompositeKey("foo", CompositeKey.Method.GET), set);
+		set = Stream.of("112288", "332299", "442288", "552299").collect(Collectors.toCollection(HashSet::new));
+		map.put(new CompositeKey("foo", CompositeKey.Method.PATCH), set);
 		return map;
+	}
+
+	@Bean
+	public AuthorizationService getAuthorizationService() {
+		return new AuthorizationService(authorinzationConfigData());
+	}
+}
+
+class CompositeKey {
+
+	enum Method { POST, GET, PUT, PATCH, DELETE }
+
+	private String url;
+	private Method method;
+
+	public CompositeKey(String url, Method method) {
+		this.url = url;
+		this.method = method;
+	}
+
+	public CompositeKey(String url, String method) {
+		this.url = url;
+		this.method = Method.valueOf(method);
+	}
+
+	@Override
+	public boolean equals(Object o) {
+		if (this == o) return true;
+		if (o == null || getClass() != o.getClass()) return false;
+		CompositeKey that = (CompositeKey) o;
+		return Objects.equals(url, that.url) &&
+				method == that.method;
+	}
+
+	@Override
+	public int hashCode() {
+
+		return Objects.hash(url, method);
+	}
+}
+
+//@Service
+class AuthorizationService {
+
+	private Map<CompositeKey, Set<String>> accessRestriction;
+
+	public AuthorizationService(Map<CompositeKey, Set<String>> accessRestriction) {
+		this.accessRestriction = accessRestriction;
+	}
+
+	public boolean isAuthorized(String url, String method, String clientID) {
+
+		Set<String> accessGroup = accessRestriction.get(new CompositeKey(url, method));
+		if(accessGroup == null) {
+		    System.out.println("Key not found");
+		    return false;
+        }
+        return accessGroup.contains(clientID) ? true : false;
 	}
 }
 
 @RestController
 class MyController {
 
-	@GetMapping("/me")
-	public String getData() {
-
+	@GetMapping("/foo")
+	public String getHappyData() {
 		return "Having a happy day!";
+	}
+
+	@GetMapping("/boo")
+	public String getMadData() {
+		return "Having a mad day!";
 	}
 }
 
 class MyInterceptor implements HandlerInterceptor {
 
-	private Map<String, Set<String>> authorinzation;
+	private AuthorizationService authorizationService;
 
-	public MyInterceptor(Map<String, Set<String>> authorinzation) {
-		this.authorinzation = authorinzation;
+	public MyInterceptor(AuthorizationService authorizationService) {
+		this.authorizationService = authorizationService;
 	}
 
 	@Override
 	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-		System.out.println("The request: " + request.getRequestURI() + ", and method: " + request.getMethod() + ", set size: " + authorinzation.size() + ", and the request " + (authorinzation.containsKey(request.getRequestURI().substring(1)) ? "is" : "is not"));
-		return true;
+
+		String cid = request.getHeader("clientID");
+		if(cid == null) {
+			System.err.println("Client ID missing in the header");
+			return false;
+		}
+		System.out.println("The request: " + request.getRequestURI() + ", and method: " + request.getMethod());
+
+		if(authorizationService.isAuthorized(request.getRequestURI().substring(1), request.getMethod(), cid)){
+			System.err.println(":::Authorized:::");
+			return true;
+		}else {
+			System.out.println(":::Unauthorized:::");
+			return false;
+		}
 	}
 }
