@@ -1,21 +1,16 @@
 package com.example.customauthorination;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpRequest;
-import org.springframework.stereotype.Component;
-import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -43,10 +38,15 @@ class MvcConfig implements WebMvcConfigurer {
 	@Bean(name="auth")
 	public Map<CompositeKey, Set<String>> authorinzationConfigData() {
 		Map<CompositeKey, Set<String>> map = new HashMap<>();
-		Set<String>  set = Stream.of("112288", "332299").collect(Collectors.toCollection(HashSet::new));
+
+		Set<String>  set = Stream.of("1122", "3322").collect(Collectors.toCollection(HashSet::new));
 		map.put(new CompositeKey("foo", CompositeKey.Method.GET), set);
-		set = Stream.of("112288", "332299", "442288", "552299").collect(Collectors.toCollection(HashSet::new));
-		map.put(new CompositeKey("foo", CompositeKey.Method.PATCH), set);
+
+		set = Stream.of("2288", "2299", "4422", "2299").collect(Collectors.toCollection(HashSet::new));
+		map.put(new CompositeKey("boo/\\w+", CompositeKey.Method.GET), set);
+
+		set = Stream.of("2288", "3399", "4488", "5599").collect(Collectors.toCollection(HashSet::new));
+		map.put(new CompositeKey("woo/\\w+/sad", CompositeKey.Method.GET), set);
 		return map;
 	}
 
@@ -60,17 +60,25 @@ class CompositeKey {
 
 	enum Method { POST, GET, PUT, PATCH, DELETE }
 
-	private String url;
+	private String pattern;
 	private Method method;
 
 	public CompositeKey(String url, Method method) {
-		this.url = url;
+		this.pattern = url;
 		this.method = method;
 	}
 
 	public CompositeKey(String url, String method) {
-		this.url = url;
+		this.pattern = url;
 		this.method = Method.valueOf(method);
+	}
+
+	public String getPattern() {
+		return pattern;
+	}
+
+	public Method getMethod() {
+		return method;
 	}
 
 	@Override
@@ -78,14 +86,14 @@ class CompositeKey {
 		if (this == o) return true;
 		if (o == null || getClass() != o.getClass()) return false;
 		CompositeKey that = (CompositeKey) o;
-		return Objects.equals(url, that.url) &&
+		return Objects.equals(pattern, that.pattern) &&
 				method == that.method;
 	}
 
 	@Override
 	public int hashCode() {
 
-		return Objects.hash(url, method);
+		return Objects.hash(pattern, method);
 	}
 }
 
@@ -100,12 +108,18 @@ class AuthorizationService {
 
 	public boolean isAuthorized(String url, String method, String clientID) {
 
-		Set<String> accessGroup = accessRestriction.get(new CompositeKey(url, method));
-		if(accessGroup == null) {
-		    System.out.println("Key not found");
-		    return false;
-        }
-        return accessGroup.contains(clientID) ? true : false;
+		Set<CompositeKey> keys = accessRestriction.keySet();
+		for(CompositeKey key : keys){
+			if(url.matches(key.getPattern())) {
+				System.out.println("Match URL pattern: " + key.getPattern());
+				if( CompositeKey.Method.valueOf(method).equals(key.getMethod())) {
+					System.out.println("Match method: " + key.getMethod());
+					Set<String> accessGroup = accessRestriction.get(key);
+					return accessGroup.contains(clientID) ? true : false;
+				}
+			}
+		}
+		return false;
 	}
 }
 
@@ -117,9 +131,14 @@ class MyController {
 		return "Having a happy day!";
 	}
 
-	@GetMapping("/boo")
-	public String getMadData() {
-		return "Having a mad day!";
+	@GetMapping("/boo/{booId}")
+	public String getMadData(@PathVariable String booId) {
+		return "Having a mad day with " + booId + "!";
+	}
+
+	@GetMapping("/woo/{wooId}/sad")
+	public String getsadData(@PathVariable String wooId) {
+		return "Having a mad day with " + wooId + "!";
 	}
 }
 
